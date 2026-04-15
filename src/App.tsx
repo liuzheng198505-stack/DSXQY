@@ -104,19 +104,24 @@ export default function App() {
       setTimeout(() => setError(null), 3000);
       return;
     }
-    const users = JSON.parse(localStorage.getItem('mockUsers') || '{}');
-    if (users[authEmail]) {
-      setError('该邮箱已注册');
+    try {
+      const users = JSON.parse(localStorage.getItem('mockUsers') || '{}');
+      if (users[authEmail]) {
+        setError('该邮箱已注册');
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+      users[authEmail] = { password: authPassword, images: [] };
+      localStorage.setItem('mockUsers', JSON.stringify(users));
+      localStorage.setItem('currentUser', authEmail);
+      setCurrentUser(authEmail);
+      setIsRegisterModalOpen(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (e: any) {
+      setError('本地存储空间已满，请先清理浏览器缓存或删除旧图片。');
       setTimeout(() => setError(null), 3000);
-      return;
     }
-    users[authEmail] = { password: authPassword, images: [] };
-    localStorage.setItem('mockUsers', JSON.stringify(users));
-    localStorage.setItem('currentUser', authEmail);
-    setCurrentUser(authEmail);
-    setIsRegisterModalOpen(false);
-    setAuthEmail('');
-    setAuthPassword('');
   };
 
   const handleLogin = async () => {
@@ -125,17 +130,22 @@ export default function App() {
       setTimeout(() => setError(null), 3000);
       return;
     }
-    const users = JSON.parse(localStorage.getItem('mockUsers') || '{}');
-    if (!users[authEmail] || users[authEmail].password !== authPassword) {
-      setError('邮箱或密码错误');
+    try {
+      const users = JSON.parse(localStorage.getItem('mockUsers') || '{}');
+      if (!users[authEmail] || users[authEmail].password !== authPassword) {
+        setError('邮箱或密码错误');
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+      localStorage.setItem('currentUser', authEmail);
+      setCurrentUser(authEmail);
+      setIsLoginModalOpen(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (e: any) {
+      setError('登录失败，本地存储异常。');
       setTimeout(() => setError(null), 3000);
-      return;
     }
-    localStorage.setItem('currentUser', authEmail);
-    setCurrentUser(authEmail);
-    setIsLoginModalOpen(false);
-    setAuthEmail('');
-    setAuthPassword('');
   };
 
   const handleLogout = () => {
@@ -145,14 +155,43 @@ export default function App() {
 
   const saveImagesToUser = async (newImages: GeneratedImage[]) => {
     if (!currentUser) return;
-    const users = JSON.parse(localStorage.getItem('mockUsers') || '{}');
-    if (users[currentUser]) {
-      const imagesWithId = newImages.map(img => ({
-        ...img,
-        filename: Date.now() + '-' + Math.random().toString(36).substr(2, 9)
-      }));
-      users[currentUser].images = [...imagesWithId, ...(users[currentUser].images || [])];
-      localStorage.setItem('mockUsers', JSON.stringify(users));
+    try {
+      const users = JSON.parse(localStorage.getItem('mockUsers') || '{}');
+      if (users[currentUser]) {
+        const imagesWithId = newImages.map(img => ({
+          ...img,
+          filename: Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+        }));
+        
+        // Keep only the latest 50 images to prevent quota issues
+        let updatedImages = [...imagesWithId, ...(users[currentUser].images || [])];
+        if (updatedImages.length > 50) {
+          updatedImages = updatedImages.slice(0, 50);
+        }
+        
+        users[currentUser].images = updatedImages;
+        
+        try {
+          localStorage.setItem('mockUsers', JSON.stringify(users));
+        } catch (e: any) {
+          if (e.name === 'QuotaExceededError' || e?.message?.includes('exceeded the quota')) {
+            // If still exceeding, try to keep even fewer images
+            users[currentUser].images = updatedImages.slice(0, 10);
+            try {
+              localStorage.setItem('mockUsers', JSON.stringify(users));
+              setError('本地存储空间不足，已自动清理部分旧图片。');
+              setTimeout(() => setError(null), 3000);
+            } catch (e2) {
+              setError('本地存储空间已满，请前往个人中心手动删除一些旧图片。');
+              setTimeout(() => setError(null), 3000);
+            }
+          } else {
+            console.error("Failed to save images:", e);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error accessing localStorage:", err);
     }
   };
 
@@ -166,11 +205,15 @@ export default function App() {
 
   const handleDeleteImage = async (filename: string) => {
     if (!currentUser) return;
-    const users = JSON.parse(localStorage.getItem('mockUsers') || '{}');
-    if (users[currentUser]) {
-      users[currentUser].images = users[currentUser].images.filter((img: any) => img.filename !== filename);
-      localStorage.setItem('mockUsers', JSON.stringify(users));
-      setUserSavedImages(users[currentUser].images);
+    try {
+      const users = JSON.parse(localStorage.getItem('mockUsers') || '{}');
+      if (users[currentUser]) {
+        users[currentUser].images = users[currentUser].images.filter((img: any) => img.filename !== filename);
+        localStorage.setItem('mockUsers', JSON.stringify(users));
+        setUserSavedImages(users[currentUser].images);
+      }
+    } catch (e) {
+      console.error("Failed to delete image:", e);
     }
   };
 

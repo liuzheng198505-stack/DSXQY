@@ -14,6 +14,34 @@ interface GeneratedImage {
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 2) => {
+  let lastError: any;
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const errText = await response.text();
+        let errMsg = errText;
+        try {
+          const errJson = JSON.parse(errText);
+          if (errJson.error && errJson.error.message) {
+            errMsg = errJson.error.message;
+          }
+        } catch (e) {}
+        throw new Error(`API Error (${response.status}): ${errMsg}`);
+      }
+      return response;
+    } catch (error: any) {
+      lastError = error;
+      if (i < maxRetries) {
+        console.log(`Fetch failed, retrying (${i + 1}/${maxRetries})...`, error.message);
+        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
+      }
+    }
+  }
+  throw lastError;
+};
+
 export default function App() {
   const [images, setImages] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
@@ -22,8 +50,8 @@ export default function App() {
   // New configuration states
   const [language, setLanguage] = useState('无文字');
   const [model, setModel] = useState('nano banana 2');
-  const [aspectRatio, setAspectRatio] = useState('9:16');
-  const [resolution, setResolution] = useState('2K');
+  const [aspectRatio, setAspectRatio] = useState('3:4');
+  const [resolution, setResolution] = useState('1K');
   const [quantity, setQuantity] = useState(1);
 
   const [isGenerating, setIsGenerating] = useState(false);
@@ -269,7 +297,7 @@ export default function App() {
         lastMsg.content.push({ type: "text", text: "\n请严格输出JSON对象格式，包含一个 'options' 数组字段，例如：{\"options\": [\"方案1\", \"方案2\", \"方案3\"]}" });
       }
 
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -277,18 +305,6 @@ export default function App() {
         },
         body: JSON.stringify(payload)
       });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        let errMsg = errText;
-        try {
-          const errJson = JSON.parse(errText);
-          if (errJson.error && errJson.error.message) {
-            errMsg = errJson.error.message;
-          }
-        } catch (e) {}
-        throw new Error(`API Error (${response.status}): ${errMsg}`);
-      }
 
       const data = await response.json();
       const content = data.choices[0].message.content;
@@ -317,11 +333,26 @@ export default function App() {
           description: "包含3个不同卖点方案的数组"
         };
       }
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: { parts: [...imageParts, { text: promptText }] },
-        config
-      });
+      let response;
+      let lastError;
+      for (let i = 0; i <= 2; i++) {
+        try {
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: { parts: [...imageParts, { text: promptText }] },
+            config
+          });
+          break;
+        } catch (err: any) {
+          lastError = err;
+          if (i < 2) {
+            console.log(`Gemini SDK failed, retrying (${i + 1}/2)...`, err.message);
+            await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
+          }
+        }
+      }
+      if (!response) throw lastError;
+
       return response.text;
     }
   };
@@ -411,7 +442,11 @@ export default function App() {
       setSelectedOptionIndex(0);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || '生成卖点过程中发生错误，请重试。');
+      let errMsg = err.message || '生成卖点过程中发生错误，请重试。';
+      if (errMsg.includes('Failed to fetch')) {
+        errMsg = '当前生图服务器拥挤，请稍后再试。';
+      }
+      setError(errMsg);
       setTimeout(() => setError(null), 3000);
       setIsSellingPointsModalOpen(false);
     } finally {
@@ -498,7 +533,11 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
       setResult(responseText || '未能生成提示词，请重试。');
     } catch (err: any) {
       console.error(err);
-      setError(err.message || '生成过程中发生错误，请重试。');
+      let errMsg = err.message || '生成过程中发生错误，请重试。';
+      if (errMsg.includes('Failed to fetch')) {
+        errMsg = '当前生图服务器拥挤，请稍后再试。';
+      }
+      setError(errMsg);
     } finally {
       setIsGenerating(false);
     }
@@ -579,7 +618,7 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
           ]
         };
 
-        const response = await fetch(url, {
+        const response = await fetchWithRetry(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -587,18 +626,6 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
           },
           body: JSON.stringify(payload)
         });
-
-        if (!response.ok) {
-          const errText = await response.text();
-          let errMsg = errText;
-          try {
-            const errJson = JSON.parse(errText);
-            if (errJson.error && errJson.error.message) {
-              errMsg = errJson.error.message;
-            }
-          } catch (e) {}
-          throw new Error(`生图失败 (${response.status}): ${errMsg}`);
-        }
 
         const data = await response.json();
         const content = data.choices?.[0]?.message?.content;
@@ -624,7 +651,11 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
       saveImagesToUser(newImages);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || '生成图片过程中发生错误，请检查 API 配置或重试。');
+      let errMsg = err.message || '生成图片过程中发生错误，请检查 API 配置或重试。';
+      if (errMsg.includes('Failed to fetch')) {
+        errMsg = '当前生图服务器拥挤，请稍后再试。';
+      }
+      setError(errMsg);
     } finally {
       setIsGeneratingImages(false);
     }
@@ -755,7 +786,7 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
         messages: [{ role: "user", content: userContent }]
       };
 
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -763,18 +794,6 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
         },
         body: JSON.stringify(payload)
       });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        let errMsg = errText;
-        try {
-          const errJson = JSON.parse(errText);
-          if (errJson.error && errJson.error.message) {
-            errMsg = errJson.error.message;
-          }
-        } catch (e) {}
-        throw new Error(`重新生图失败 (${response.status}): ${errMsg}`);
-      }
 
       const data = await response.json();
       const content = data.choices?.[0]?.message?.content;
@@ -797,7 +816,11 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
       setGeneratedImages(prev => prev.map((img, i) => i === index ? { ...img, url: newUrl, prompt: customPrompt, isRegenerating: false } : img));
     } catch (err: any) {
       console.error(err);
-      setError(err.message || '重新生成图片失败，请重试。');
+      let errMsg = err.message || '重新生成图片失败，请重试。';
+      if (errMsg.includes('Failed to fetch')) {
+        errMsg = '当前生图服务器拥挤，请稍后再试。';
+      }
+      setError(errMsg);
       setGeneratedImages(prev => prev.map((img, i) => i === index ? { ...img, isRegenerating: false } : img));
     }
   };

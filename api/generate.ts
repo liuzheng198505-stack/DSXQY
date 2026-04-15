@@ -14,8 +14,9 @@ export default async function handler(req: Request) {
     const body = await req.json();
     const { model, messages, response_format } = body;
     
-    const apiKey = process.env.GEMINI_API_KEY;
-    const customUrl = process.env.CUSTOM_API_URL || 'https://generativelanguage.googleapis.com';
+    // 强制使用测试 Key 和 URL，排除环境变量干扰
+    const apiKey = 'sk-bxGHYtJzVokDGX18ZqwnQqjo0PSpsNmX1eYGc91qYwXwEfPi';
+    const customUrl = 'https://new.apipudding.com';
 
     if (!apiKey) {
       return new Response(JSON.stringify({ error: 'API key not configured on server' }), {

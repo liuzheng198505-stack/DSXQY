@@ -132,8 +132,10 @@ async function startServer() {
   app.post("/api/generate", async (req, res) => {
     try {
       const { model, messages, response_format } = req.body;
-      const apiKey = process.env.GEMINI_API_KEY;
-      const customUrl = process.env.CUSTOM_API_URL || 'https://generativelanguage.googleapis.com';
+      
+      // 强制使用测试 Key 和 URL，排除环境变量干扰
+      const apiKey = 'sk-bxGHYtJzVokDGX18ZqwnQqjo0PSpsNmX1eYGc91qYwXwEfPi';
+      const customUrl = 'https://new.apipudding.com';
 
       if (!apiKey) {
         return res.status(500).json({ error: 'API key not configured on server' });

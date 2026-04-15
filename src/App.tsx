@@ -96,13 +96,6 @@ export default function App() {
   });
   
   // Settings Modal State
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [customApiKey, setCustomApiKey] = useState(localStorage.getItem('custom_api_key') || '');
-  const [customApiUrl, setCustomApiUrl] = useState(localStorage.getItem('custom_api_url') || '');
-  const [isTestingKey, setIsTestingKey] = useState(false);
-  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
-  const [showApiKey, setShowApiKey] = useState(false);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleRegister = async () => {
@@ -254,121 +247,60 @@ export default function App() {
   };
 
   const callAiApi = async (systemInstruction: string, promptText: string, imageParts: any[] = [], isJson = false) => {
-    const key = customApiKey || process.env.GEMINI_API_KEY;
-    const isCustom = !!customApiUrl;
-    let cleanUrl = (customApiUrl || 'https://generativelanguage.googleapis.com').trim();
-    if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
-    if (cleanUrl.endsWith('/v1beta')) cleanUrl = cleanUrl.slice(0, -7);
-    if (cleanUrl.endsWith('/v1')) cleanUrl = cleanUrl.slice(0, -3);
-
     const modelName = '[特价]gemini-3-flash-preview';
-
-    if (isCustom) {
-      // Use OpenAI format for custom proxies to avoid URL encoding issues with Chinese model names
-      const url = `${cleanUrl}/v1/chat/completions`;
-      
-      const messages: any[] = [];
-      if (systemInstruction) {
-        messages.push({ role: "system", content: systemInstruction });
-      }
-      
-      const userContent: any[] = [];
-      if (promptText) {
-        userContent.push({ type: "text", text: promptText });
-      }
-      
-      imageParts.forEach(part => {
-        userContent.push({
-          type: "image_url",
-          image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` }
-        });
-      });
-      
-      messages.push({ role: "user", content: userContent });
-
-      const payload: any = {
-        model: modelName,
-        messages: messages,
-      };
-
-      if (isJson) {
-        payload.response_format = { type: "json_object" };
-        const lastMsg = messages[messages.length - 1];
-        lastMsg.content.push({ type: "text", text: "\n请严格输出JSON对象格式，包含一个 'options' 数组字段，例如：{\"options\": [\"方案1\", \"方案2\", \"方案3\"]}" });
-      }
-
-      const response = await fetchWithRetry(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${key}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await response.json();
-      const content = data.choices[0].message.content;
-      
-      if (isJson) {
-        try {
-          const parsed = JSON.parse(content);
-          if (parsed.options && Array.isArray(parsed.options)) {
-            return JSON.stringify(parsed.options);
-          }
-        } catch (e) {
-          console.error("OpenAI JSON parse fallback", e);
-        }
-      }
-      return content;
-
-    } else {
-      // Use official Gemini SDK for default
-      const ai = new GoogleGenAI({ apiKey: key as string });
-      const config: any = { systemInstruction };
-      if (isJson) {
-        config.responseMimeType = "application/json";
-        config.responseSchema = {
-          type: Type.ARRAY,
-          items: { type: Type.STRING },
-          description: "包含3个不同卖点方案的数组"
-        };
-      }
-      let response;
-      let lastError;
-      for (let i = 0; i <= 2; i++) {
-        try {
-          response = await ai.models.generateContent({
-            model: modelName,
-            contents: { parts: [...imageParts, { text: promptText }] },
-            config
-          });
-          break;
-        } catch (err: any) {
-          lastError = err;
-          if (i < 2) {
-            console.log(`Gemini SDK failed, retrying (${i + 1}/2)...`, err.message);
-            await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
-          }
-        }
-      }
-      if (!response) throw lastError;
-
-      return response.text;
+    
+    const messages: any[] = [];
+    if (systemInstruction) {
+      messages.push({ role: "system", content: systemInstruction });
     }
-  };
-
-  const testApiKey = async () => {
-    setIsTestingKey(true);
-    setTestResult(null);
-    try {
-      await callAiApi('', 'hi');
-      setTestResult('success');
-    } catch (err) {
-      console.error(err);
-      setTestResult('error');
-    } finally {
-      setIsTestingKey(false);
+    
+    const userContent: any[] = [];
+    if (promptText) {
+      userContent.push({ type: "text", text: promptText });
     }
+    
+    imageParts.forEach(part => {
+      userContent.push({
+        type: "image_url",
+        image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` }
+      });
+    });
+    
+    messages.push({ role: "user", content: userContent });
+
+    const payload: any = {
+      model: modelName,
+      messages: messages,
+    };
+
+    if (isJson) {
+      payload.response_format = { type: "json_object" };
+      const lastMsg = messages[messages.length - 1];
+      lastMsg.content.push({ type: "text", text: "\n请严格输出JSON对象格式，包含一个 'options' 数组字段，例如：{\"options\": [\"方案1\", \"方案2\", \"方案3\"]}" });
+    }
+
+    const response = await fetchWithRetry('/api/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    
+    if (isJson) {
+      try {
+        const parsed = JSON.parse(content);
+        if (parsed.options && Array.isArray(parsed.options)) {
+          return JSON.stringify(parsed.options);
+        }
+      } catch (e) {
+        console.error("JSON parse fallback", e);
+      }
+    }
+    return content;
   };
 
   const generateAutoSellingPoints = async () => {
@@ -553,14 +485,6 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
     setSelectedImageIndices([]);
 
     try {
-      const key = customApiKey || process.env.GEMINI_API_KEY;
-      let cleanUrl = (customApiUrl || 'https://generativelanguage.googleapis.com').trim();
-      if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
-      if (cleanUrl.endsWith('/v1beta')) cleanUrl = cleanUrl.slice(0, -7);
-      if (cleanUrl.endsWith('/v1')) cleanUrl = cleanUrl.slice(0, -3);
-
-      const url = `${cleanUrl}/v1/chat/completions`;
-
       // Parse result to get overall guidelines and per-page prompts
       const parts = result.split(/## 第 \d+ 页[：:]/);
       const overallGuidelines = parts[0].replace('# 整体设计规范', '').trim();
@@ -618,11 +542,10 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
           ]
         };
 
-        const response = await fetchWithRetry(url, {
+        const response = await fetchWithRetry('/api/generate', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${key}`
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify(payload)
         });
@@ -745,14 +668,6 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
     setError(null);
 
     try {
-      const key = customApiKey || process.env.GEMINI_API_KEY;
-      let cleanUrl = (customApiUrl || 'https://generativelanguage.googleapis.com').trim();
-      if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
-      if (cleanUrl.endsWith('/v1beta')) cleanUrl = cleanUrl.slice(0, -7);
-      if (cleanUrl.endsWith('/v1')) cleanUrl = cleanUrl.slice(0, -3);
-
-      const url = `${cleanUrl}/v1/chat/completions`;
-
       const base64Images = await Promise.all(images.map(async (img) => {
         return new Promise<string>((resolve) => {
           const reader = new FileReader();
@@ -786,11 +701,10 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
         messages: [{ role: "user", content: userContent }]
       };
 
-      const response = await fetchWithRetry(url, {
+      const response = await fetchWithRetry('/api/generate', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${key}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
       });
@@ -838,13 +752,6 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
                 电商详情页生成器 <span className="text-sm font-medium text-blue-600 ml-2 px-2 py-0.5 bg-blue-50 rounded-full">Studio Genesis</span>
               </h1>
             </div>
-            <button
-              onClick={() => setIsSettingsModalOpen(true)}
-              className="p-2 text-gray-500 hover:text-gray-900 transition-colors rounded-full hover:bg-gray-100 ml-2"
-              title="设置 API"
-            >
-              <Settings2 size={20} />
-            </button>
           </div>
           <div className="flex items-center gap-4">
             {currentUser ? (
@@ -1440,112 +1347,6 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
                     </button>
                   </>
                 )}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-      {/* Settings Modal */}
-      <AnimatePresence>
-        {isSettingsModalOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-[#1a1a1a] rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col text-gray-200 border border-gray-800"
-            >
-              <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between bg-[#1e1e1e]">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Settings2 size={20} className="text-gray-400" />
-                  API 配置
-                </h3>
-                <button 
-                  onClick={() => setIsSettingsModalOpen(false)}
-                  className="text-gray-400 hover:text-white transition-colors p-1 rounded-md hover:bg-gray-800"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-8 bg-[#1a1a1a]">
-                {/* API Key */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
-                      API 密钥
-                    </label>
-                    <Settings2 size={16} className="text-gray-500" />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-1">
-                      <input
-                        type={showApiKey ? "text" : "password"}
-                        value={customApiKey}
-                        onChange={(e) => setCustomApiKey(e.target.value)}
-                        placeholder="输入您的 API 密钥..."
-                        className="w-full bg-[#242424] border border-gray-700 rounded-lg py-2.5 pl-4 pr-10 text-sm text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder-gray-600"
-                      />
-                      <button
-                        onClick={() => setShowApiKey(!showApiKey)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
-                      >
-                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                    <button
-                      onClick={testApiKey}
-                      disabled={isTestingKey || !customApiKey}
-                      className="px-5 py-2.5 bg-[#2a2a2a] border border-gray-700 rounded-lg text-sm font-medium hover:bg-[#333] hover:border-gray-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      {isTestingKey ? <Loader2 size={16} className="animate-spin text-blue-400" /> : '检测'}
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-gray-500">多个密钥使用逗号分隔</p>
-                    {testResult === 'success' && <p className="text-xs text-green-400 flex items-center gap-1"><Check size={12} /> 连接成功！</p>}
-                    {testResult === 'error' && <p className="text-xs text-red-400 flex items-center gap-1"><X size={12} /> 连接失败，请检查密钥或网络。</p>}
-                  </div>
-                </div>
-
-                {/* API URL */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
-                      API 地址 <span className="text-gray-500 text-xs font-normal cursor-help" title="自定义 API 代理地址">?</span>
-                    </label>
-                    <Settings2 size={16} className="text-gray-500" />
-                  </div>
-                  <input
-                    type="text"
-                    value={customApiUrl}
-                    onChange={(e) => setCustomApiUrl(e.target.value)}
-                    placeholder="https://generativelanguage.googleapis.com/v1beta"
-                    className="w-full bg-[#242424] border border-gray-700 rounded-lg py-2.5 px-4 text-sm text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder-gray-600"
-                  />
-                  <p className="text-xs text-gray-500 break-all">
-                    预览: {(() => {
-                      let cleanUrl = customApiUrl.trim() || 'https://generativelanguage.googleapis.com';
-                      if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
-                      if (cleanUrl.endsWith('/v1beta')) cleanUrl = cleanUrl.slice(0, -7);
-                      if (cleanUrl.endsWith('/v1')) cleanUrl = cleanUrl.slice(0, -3);
-                      return `${cleanUrl}/v1beta/models/[特价]gemini-3-flash-preview:generateContent`;
-                    })()}
-                  </p>
-                </div>
-              </div>
-              
-              <div className="px-6 py-4 border-t border-gray-800 flex justify-end bg-[#1e1e1e]">
-                <button
-                  onClick={() => {
-                    localStorage.setItem('custom_api_key', customApiKey);
-                    localStorage.setItem('custom_api_url', customApiUrl);
-                    setIsSettingsModalOpen(false);
-                  }}
-                  className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-blue-900/20"
-                >
-                  保存配置
-                </button>
               </div>
             </motion.div>
           </div>

@@ -1,0 +1,5 @@
+{
+  "name": "电商详情页提示词生成器",
+  "description": "根据产品图和配置参数，一键生成专业的电商详情页 AI 绘画提示词。",
+  "requestFramePermissions": []
+}

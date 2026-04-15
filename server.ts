@@ -128,6 +128,44 @@ async function startServer() {
   // Serve static images
   app.use("/api/images", express.static(IMAGES_DIR));
 
+  // AI API Proxy for local development
+  app.post("/api/generate", async (req, res) => {
+    try {
+      const { model, messages, response_format } = req.body;
+      const apiKey = process.env.GEMINI_API_KEY;
+      const customUrl = process.env.CUSTOM_API_URL || 'https://generativelanguage.googleapis.com';
+
+      if (!apiKey) {
+        return res.status(500).json({ error: 'API key not configured on server' });
+      }
+
+      let cleanUrl = customUrl.trim();
+      if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
+      if (cleanUrl.endsWith('/v1beta')) cleanUrl = cleanUrl.slice(0, -7);
+      if (cleanUrl.endsWith('/v1')) cleanUrl = cleanUrl.slice(0, -3);
+
+      const url = `${cleanUrl}/v1/chat/completions`;
+
+      const payload: any = { model, messages };
+      if (response_format) payload.response_format = response_format;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.text();
+      res.status(response.status).send(data);
+    } catch (error: any) {
+      console.error("Generate API Error:", error);
+      res.status(500).json({ error: error.message || 'Internal Server Error' });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

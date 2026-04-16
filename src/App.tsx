@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { GoogleGenAI, Type } from '@google/genai';
 import ReactMarkdown from 'react-markdown';
-import { Upload, Image as ImageIcon, Loader2, Sparkles, X, Copy, Check, Settings2, Type as TypeIcon, LayoutTemplate, MonitorPlay, Hash, Wand2, RefreshCw, Eye, EyeOff, ChevronDown, ChevronUp, Download, Maximize2, CheckCircle2, Circle, User, LogIn, UserPlus, Trash2 } from 'lucide-react';
+import { Upload, Image as ImageIcon, Loader2, Sparkles, X, Copy, Check, Settings2, Type as TypeIcon, LayoutTemplate, MonitorPlay, Hash, Wand2, RefreshCw, Eye, EyeOff, ChevronDown, ChevronUp, Download, Maximize2, CheckCircle2, Circle, User, LogIn, UserPlus, Trash2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import JSZip from 'jszip';
 
@@ -14,7 +14,7 @@ interface GeneratedImage {
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 2) => {
+const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 1) => {
   let lastError: any;
   for (let i = 0; i <= maxRetries; i++) {
     try {
@@ -77,6 +77,7 @@ export default function App() {
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [imageGenerationProgress, setImageGenerationProgress] = useState(0);
   const [isPromptCollapsed, setIsPromptCollapsed] = useState(false);
+  const [isEditingResult, setIsEditingResult] = useState(false);
   const [selectedImageIndices, setSelectedImageIndices] = useState<number[]>([]);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   
@@ -1091,6 +1092,19 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
                 </h2>
                 
                 <div className="flex items-center gap-3">
+                  {/* Edit Button */}
+                  {result && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setIsEditingResult(!isEditingResult); }}
+                      className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        isEditingResult
+                          ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                          : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 shadow-sm'
+                      }`}
+                    >
+                      {isEditingResult ? '完成编辑' : '编辑提示词'}
+                    </button>
+                  )}
                   {/* Copy Button */}
                   <button
                     onClick={(e) => { e.stopPropagation(); handleCopy(); }}
@@ -1157,9 +1171,25 @@ ${Array.from({ length: quantity }).map((_, i) => `## 第 ${i + 1} 页：[本页�
                             key="result"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            className="markdown-body prose prose-blue max-w-none"
+                            className="w-full"
                           >
-                            <ReactMarkdown>{result}</ReactMarkdown>
+                            {isEditingResult ? (
+                              <div className="space-y-3">
+                                <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-4 py-3 rounded-xl text-sm border border-amber-200">
+                                  <AlertCircle size={18} className="shrink-0" />
+                                  <p>请尽量保留 <strong>## 第 X 页：</strong> 的标题格式，否则系统可能无法正确识别并生成多张图片。</p>
+                                </div>
+                                <textarea
+                                  value={result}
+                                  onChange={(e) => setResult(e.target.value)}
+                                  className="w-full h-96 p-4 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all resize-y text-sm bg-gray-50/50 focus:bg-white font-mono"
+                                />
+                              </div>
+                            ) : (
+                              <div className="markdown-body prose prose-blue max-w-none">
+                                <ReactMarkdown>{result}</ReactMarkdown>
+                              </div>
+                            )}
                           </motion.div>
                         ) : (
                           <motion.div
